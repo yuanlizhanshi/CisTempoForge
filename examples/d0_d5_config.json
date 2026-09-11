@@ -1,0 +1,43 @@
+{
+  "data": {
+    "model_inputs": "../data/cistempo/model_inputs.npz",
+    "metadata": "../data/cistempo/metadata.parquet",
+    "distance": "../data/cistempo/mean_absolute_tss_distance.npy",
+    "structure_inputs": "../data/cistempo/gene_structure_model_inputs.npz",
+    "day_indices": [0, 1, 2, 3, 4, 5],
+    "train_split": "train",
+    "validation_split": "validation",
+    "test_split": "test"
+  },
+  "model": {
+    "n_days": 6,
+    "variant": "independent_structure",
+    "fusion": "concat",
+    "hidden_dim": 128,
+    "motif_filters": 32,
+    "motif_width": 19,
+    "dropout": 0.2,
+    "detach_level_state": false
+  },
+  "training": {
+    "seed": 42,
+    "batch_size": 24,
+    "gradient_accumulation": 2,
+    "epochs": 40,
+    "patience": 8,
+    "learning_rate": 0.0002,
+    "weight_decay": 0.01,
+    "trend_weight": 1.0,
+    "level_weight": 0.1,
+    "local_trend_weight": 0.05,
+    "level_encoder_trend_weight": 0.1,
+    "reverse_complement_probability": 0.5,
+    "num_workers": 4,
+    "gradient_clip_norm": 5.0,
+    "device": "cuda",
+    "mixed_precision": "auto"
+  },
+  "selection": {
+    "rmse_tolerance_fraction": 0.005
+  }
+}

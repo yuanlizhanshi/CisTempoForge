@@ -6,6 +6,7 @@ from typing import Iterable
 
 import numpy as np
 import torch
+from tqdm.auto import tqdm
 
 from .config import TrainingConfig
 from .losses import simple_huber_loss
@@ -61,7 +62,8 @@ def _to_device(batch: dict[str, torch.Tensor], device: torch.device) -> dict[str
 def train_epoch(model: torch.nn.Module, loader: Iterable, optimizer: torch.optim.Optimizer,
                 device: str | torch.device, config: TrainingConfig,
                 *, scaler: torch.amp.GradScaler | None = None,
-                amp_dtype: torch.dtype | None = None) -> dict[str, float]:
+                amp_dtype: torch.dtype | None = None, progress: bool = False,
+                description: str = "Training") -> dict[str, float]:
     device = torch.device(device)
     model.train()
     optimizer.zero_grad(set_to_none=True)
@@ -69,7 +71,11 @@ def train_epoch(model: torch.nn.Module, loader: Iterable, optimizer: torch.optim
     count = 0
     accumulation = config.gradient_accumulation
     total_steps = len(loader)  # type: ignore[arg-type]
-    for step, cpu_batch in enumerate(loader, 1):
+    bar = tqdm(
+        loader, total=total_steps, desc=description, disable=not progress,
+        leave=False, dynamic_ncols=True,
+    )
+    for step, cpu_batch in enumerate(bar, 1):
         batch = reverse_complement(
             _to_device(cpu_batch, device), config.reverse_complement_probability
         )
@@ -96,6 +102,10 @@ def train_epoch(model: torch.nn.Module, loader: Iterable, optimizer: torch.optim
         for name, value in values.items():
             sums[name] = sums.get(name, 0.0) + float(value.detach()) * size
         count += size
+        bar.set_postfix(
+            loss=f"{sums['total'] / count:.4f}",
+            lr=f"{optimizer.param_groups[0]['lr']:.2e}", refresh=False,
+        )
     if count == 0:
         raise ValueError("training loader is empty")
     return {name: value / count for name, value in sums.items()}
@@ -103,12 +113,17 @@ def train_epoch(model: torch.nn.Module, loader: Iterable, optimizer: torch.optim
 
 @torch.inference_mode()
 def evaluate(model: torch.nn.Module, loader: Iterable, device: str | torch.device,
-             config: TrainingConfig, *, amp_dtype: torch.dtype | None = None) -> dict[str, float]:
+             config: TrainingConfig, *, amp_dtype: torch.dtype | None = None,
+             progress: bool = False, description: str = "Validation") -> dict[str, float]:
     device = torch.device(device)
     model.eval()
     sums: dict[str, float] = {}
     count = 0
-    for cpu_batch in loader:
+    bar = tqdm(
+        loader, total=len(loader), desc=description, disable=not progress,
+        leave=False, dynamic_ncols=True,
+    )
+    for cpu_batch in bar:
         batch = _to_device(cpu_batch, device)
         with _autocast(device, amp_dtype):
             output = model(batch)
@@ -117,6 +132,7 @@ def evaluate(model: torch.nn.Module, loader: Iterable, device: str | torch.devic
         for name, value in {"total": total, **pieces}.items():
             sums[name] = sums.get(name, 0.0) + float(value.detach()) * size
         count += size
+        bar.set_postfix(loss=f"{sums['total'] / count:.4f}", refresh=False)
     if count == 0:
         raise ValueError("evaluation loader is empty")
     return {name: value / count for name, value in sums.items()}
@@ -124,11 +140,16 @@ def evaluate(model: torch.nn.Module, loader: Iterable, device: str | torch.devic
 
 @torch.inference_mode()
 def predict(model: torch.nn.Module, loader: Iterable, device: str | torch.device,
-            *, amp_dtype: torch.dtype | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+            *, amp_dtype: torch.dtype | None = None, progress: bool = False,
+            description: str = "Prediction") -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     device = torch.device(device)
     model.eval()
     true, predicted, ids = [], [], []
-    for cpu_batch in loader:
+    bar = tqdm(
+        loader, total=len(loader), desc=description, disable=not progress,
+        leave=False, dynamic_ncols=True,
+    )
+    for cpu_batch in bar:
         batch = _to_device(cpu_batch, device)
         with _autocast(device, amp_dtype):
             output = model(batch)

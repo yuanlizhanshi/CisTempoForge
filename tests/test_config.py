@@ -50,3 +50,10 @@ def test_non_null_split_names_remain_distinct(synthetic_data):
     values["data"].update({"validation_split": "train", "test_split": None})
     with pytest.raises(ValueError, match="must be distinct"):
         config_from_dict(values)
+
+
+def test_progress_setting_must_be_boolean(synthetic_data):
+    values = minimal(synthetic_data)
+    values["training"] = {"show_progress": "yes"}
+    with pytest.raises(TypeError, match="show_progress"):
+        config_from_dict(values)

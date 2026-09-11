@@ -35,7 +35,8 @@
     "num_workers": 4,
     "gradient_clip_norm": 5.0,
     "device": "cuda",
-    "mixed_precision": "auto"
+    "mixed_precision": "auto",
+    "show_progress": true
   },
   "selection": {
     "rmse_tolerance_fraction": 0.005

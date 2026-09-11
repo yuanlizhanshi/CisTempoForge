@@ -76,3 +76,27 @@ def test_fit_checkpoint_reload_and_resume(synthetic_data, tmp_path):
     assert resumed.best_epoch == result.best_epoch
     assert len(resumed.history) == len(result.history)
     assert load_checkpoint(result.last_checkpoint)["normalization"] == state["normalization"]
+
+
+def test_fit_progress_reports_each_epoch(synthetic_data, tmp_path, capsys):
+    config = training_config(synthetic_data, epochs=1)
+    config.training.show_progress = True
+    fit(config, tmp_path / "progress_run")
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+    assert "Epoch 01/01" in combined
+    assert "centered RMSE" in combined
+
+
+def test_resume_accepts_legacy_checkpoint_without_progress_setting(synthetic_data, tmp_path):
+    config = training_config(synthetic_data, epochs=1)
+    config.training.show_progress = False
+    output = tmp_path / "legacy_resume"
+    first = fit(config, output)
+    state = torch.load(first.last_checkpoint, map_location="cpu", weights_only=False)
+    state["config"]["training"].pop("show_progress")
+    legacy = output / "legacy_last.pt"
+    torch.save(state, legacy)
+    config.training.show_progress = True
+    resumed = fit(config, output, resume_from=legacy)
+    assert len(resumed.history) == 1

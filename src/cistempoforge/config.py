@@ -48,6 +48,7 @@ class TrainingConfig:
     gradient_clip_norm: float = 5.0
     device: str = "cuda"
     mixed_precision: str = "auto"
+    show_progress: bool = True
 
 
 @dataclass
@@ -102,6 +103,8 @@ class CisTempoForgeConfig:
             raise ValueError("reverse_complement_probability must be in [0, 1]")
         if t.mixed_precision not in {"auto", "bf16", "fp16", "none"}:
             raise ValueError("mixed_precision must be auto, bf16, fp16, or none")
+        if not isinstance(t.show_progress, bool):
+            raise TypeError("training.show_progress must be a boolean")
         if self.selection.rmse_tolerance_fraction < 0:
             raise ValueError("selection.rmse_tolerance_fraction cannot be negative")
         if check_paths:

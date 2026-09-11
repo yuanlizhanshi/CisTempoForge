@@ -11,6 +11,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
+from tqdm.auto import tqdm
 
 from .checkpoint import checkpoint_payload, load_checkpoint, load_model, save_checkpoint
 from .config import CisTempoForgeConfig, resolve_config
@@ -75,6 +76,13 @@ def _device(config: CisTempoForgeConfig) -> torch.device:
     return device
 
 
+def _resume_signature(config_or_values) -> dict:
+    """Return the numerically relevant configuration for resume checks."""
+    values = resolve_config(config_or_values).to_dict()
+    values["training"].pop("show_progress", None)
+    return values
+
+
 def fit(config_or_path, output_dir: str | Path, *, resume_from: str | Path | None = None) -> TrainingResult:
     config = resolve_config(config_or_path)
     config.validate(check_paths=True)
@@ -108,7 +116,7 @@ def fit(config_or_path, output_dir: str | Path, *, resume_from: str | Path | Non
 
     if resume_from is not None:
         resume = load_checkpoint(resume_from, map_location=device)
-        if resume["config"] != config.to_dict():
+        if _resume_signature(resume["config"]) != _resume_signature(config):
             raise ValueError("resume checkpoint configuration does not match requested configuration")
         model.load_state_dict(resume["model_state"], strict=True)
         optimizer.load_state_dict(resume["optimizer_state"])
@@ -127,12 +135,17 @@ def fit(config_or_path, output_dir: str | Path, *, resume_from: str | Path | Non
     started = time.time()
     last_path = output_dir / "last.pt"
     for epoch in range(start_epoch, config.training.epochs + 1):
+        epoch_label = f"Epoch {epoch:02d}/{config.training.epochs:02d}"
         train_loss = train_epoch(
             model, train_loader, optimizer, device, config.training,
             scaler=scaler, amp_dtype=amp_dtype,
+            progress=config.training.show_progress,
+            description=f"{epoch_label} - Training",
         )
         validation_loss = evaluate(
-            model, validation_loader, device, config.training, amp_dtype=amp_dtype
+            model, validation_loader, device, config.training, amp_dtype=amp_dtype,
+            progress=config.training.show_progress,
+            description=f"{epoch_label} - Validation",
         )
         true, predicted, _ = predict(model, validation_loader, device, amp_dtype=amp_dtype)
         values = trajectory_metrics(true, predicted)
@@ -161,7 +174,17 @@ def fit(config_or_path, output_dir: str | Path, *, resume_from: str | Path | Non
         save_checkpoint(epoch_path, payload, overwrite=True)
         save_checkpoint(last_path, payload, overwrite=True)
         _write_history(output_dir / "history.csv", history)
+        if config.training.show_progress:
+            tqdm.write(
+                f"{epoch_label} | train loss {train_loss['total']:.4f} | "
+                f"validation loss {validation_loss['total']:.4f} | "
+                f"centered RMSE {values['centered_rmse']:.4f} | "
+                f"median trajectory Pearson {values['median_trajectory_pearson']:.4f} | "
+                f"patience {stale}/{config.training.patience}"
+            )
         if stale >= config.training.patience:
+            if config.training.show_progress:
+                tqdm.write(f"Early stopping after {epoch_label.lower()}.")
             break
 
     if not history:

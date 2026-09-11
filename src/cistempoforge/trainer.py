@@ -51,9 +51,11 @@ def _rng_state() -> dict:
 def _restore_rng(state: dict) -> None:
     random.setstate(state["python"])
     np.random.set_state(state["numpy"])
-    torch.set_rng_state(state["torch"])
+    # torch.set_rng_state requires a CPU ByteTensor.  A checkpoint loaded with
+    # map_location="cuda" also moves this small bookkeeping tensor to CUDA.
+    torch.set_rng_state(state["torch"].detach().cpu())
     if state.get("cuda") is not None and torch.cuda.is_available():
-        torch.cuda.set_rng_state_all(state["cuda"])
+        torch.cuda.set_rng_state_all([item.detach().cpu() for item in state["cuda"]])
 
 
 def _write_history(path: Path, history: list[dict]) -> None:
@@ -115,7 +117,9 @@ def fit(config_or_path, output_dir: str | Path, *, resume_from: str | Path | Non
     normalization = prepared.normalization.to_dict()
 
     if resume_from is not None:
-        resume = load_checkpoint(resume_from, map_location=device)
+        # Keep RNG and optimizer bookkeeping on CPU while deserializing. Model
+        # and optimizer state loaders move tensors to their parameter devices.
+        resume = load_checkpoint(resume_from, map_location="cpu")
         if _resume_signature(resume["config"]) != _resume_signature(config):
             raise ValueError("resume checkpoint configuration does not match requested configuration")
         model.load_state_dict(resume["model_state"], strict=True)

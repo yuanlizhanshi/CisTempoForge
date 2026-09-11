@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 import torch
 
 from cistempoforge import (
@@ -11,6 +12,7 @@ from cistempoforge import (
     select_best_epoch,
     simple_huber_loss,
 )
+from cistempoforge.trainer import _restore_rng, _rng_state
 
 
 def training_config(data, epochs=2):
@@ -100,3 +102,12 @@ def test_resume_accepts_legacy_checkpoint_without_progress_setting(synthetic_dat
     config.training.show_progress = True
     resumed = fit(config, output, resume_from=legacy)
     assert len(resumed.history) == 1
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is unavailable")
+def test_restore_rng_accepts_cuda_mapped_checkpoint_state():
+    state = _rng_state()
+    state["torch"] = state["torch"].cuda()
+    if state["cuda"] is not None:
+        state["cuda"] = [item.cuda() for item in state["cuda"]]
+    _restore_rng(state)

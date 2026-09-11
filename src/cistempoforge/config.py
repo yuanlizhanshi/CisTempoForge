@@ -15,7 +15,7 @@ class DataConfig:
     day_indices: list[int] = field(default_factory=lambda: list(range(6)))
     train_split: str = "train"
     validation_split: str = "validation"
-    test_split: str = "test"
+    test_split: str | None = "test"
 
 
 @dataclass
@@ -73,8 +73,13 @@ class CisTempoForgeConfig:
             raise ValueError("data.day_indices must be unique")
         if any(not isinstance(day, int) or day < 0 for day in self.data.day_indices):
             raise ValueError("data.day_indices must contain non-negative integers")
-        if len({self.data.train_split, self.data.validation_split, self.data.test_split}) != 3:
-            raise ValueError("train, validation, and test split names must be distinct")
+        split_names = [self.data.train_split, self.data.validation_split]
+        if self.data.test_split is not None:
+            split_names.append(self.data.test_split)
+        if any(not isinstance(name, str) or not name for name in split_names):
+            raise ValueError("configured split names must be non-empty strings")
+        if len(set(split_names)) != len(split_names):
+            raise ValueError("configured split names must be distinct")
         if not isinstance(self.model.hidden_dim, int) or isinstance(self.model.hidden_dim, bool):
             raise TypeError("model.hidden_dim must be an integer")
         if self.model.hidden_dim <= 0 or self.model.hidden_dim % 4:

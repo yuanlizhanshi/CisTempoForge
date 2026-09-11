@@ -101,7 +101,9 @@ def load_data(config: CisTempoForgeConfig) -> PreparedData:
     if features.shape != (n_genes, 8) or masks.shape != (n_genes, 8):
         raise ValueError("structure features and masks must each be [genes, 8]")
     split_values = set(metadata["split"].astype(str))
-    required_splits = {data.train_split, data.validation_split, data.test_split}
+    required_splits = {data.train_split, data.validation_split}
+    if data.test_split is not None:
+        required_splits.add(data.test_split)
     missing_splits = required_splits - split_values
     if missing_splits:
         raise ValueError(f"metadata is missing configured splits: {sorted(missing_splits)}")

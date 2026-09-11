@@ -79,6 +79,10 @@ The checkpoint format is versioned starting with CisTempoForge `0.1.0`.
 Checkpoints produced by the historical D0–D5 scripts use a different format and
 are not guaranteed to load with this package.
 
+For cross-validation workflows that use every sample in either training or
+validation, set `config.data.test_split = None`. The default remains `"test"`
+for conventional train/validation/test experiments.
+
 ## Training outputs
 
 The caller owns `output_dir`. CisTempoForge writes:

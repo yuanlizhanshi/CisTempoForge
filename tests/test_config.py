@@ -36,3 +36,17 @@ def test_missing_paths_are_reported(synthetic_data):
     config.data.model_inputs = "/definitely/missing/model_inputs.npz"
     with pytest.raises(FileNotFoundError, match="model_inputs"):
         config.validate(check_paths=True)
+
+
+def test_optional_test_split_is_valid(synthetic_data):
+    values = minimal(synthetic_data)
+    values["data"]["test_split"] = None
+    config = config_from_dict(values)
+    assert config.data.test_split is None
+
+
+def test_non_null_split_names_remain_distinct(synthetic_data):
+    values = minimal(synthetic_data)
+    values["data"].update({"validation_split": "train", "test_split": None})
+    with pytest.raises(ValueError, match="must be distinct"):
+        config_from_dict(values)

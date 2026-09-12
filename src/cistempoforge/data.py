@@ -101,7 +101,9 @@ def load_data(config: CisTempoForgeConfig) -> PreparedData:
     if features.shape != (n_genes, 8) or masks.shape != (n_genes, 8):
         raise ValueError("structure features and masks must each be [genes, 8]")
     split_values = set(metadata["split"].astype(str))
-    required_splits = {data.train_split, data.validation_split}
+    required_splits = {data.train_split}
+    if data.validation_split is not None:
+        required_splits.add(data.validation_split)
     if data.test_split is not None:
         required_splits.add(data.test_split)
     missing_splits = required_splits - split_values
@@ -175,12 +177,14 @@ class CisTempoForgeDataset(Dataset):
 
 
 def make_loader(dataset: Dataset, *, shuffle: bool, batch_size: int,
-                num_workers: int = 0, pin_memory: bool | None = None) -> DataLoader:
+                num_workers: int = 0, pin_memory: bool | None = None,
+                generator: torch.Generator | None = None) -> DataLoader:
     if pin_memory is None:
         pin_memory = torch.cuda.is_available()
     return DataLoader(
         dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers,
         pin_memory=pin_memory, persistent_workers=num_workers > 0,
+        generator=generator,
     )
 
 

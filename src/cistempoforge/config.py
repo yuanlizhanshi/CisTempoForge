@@ -14,7 +14,10 @@ class DataConfig:
     structure_inputs: str
     day_indices: list[int] = field(default_factory=lambda: list(range(6)))
     train_split: str = "train"
-    validation_split: str = "validation"
+    # Both held-out splits are optional so that a run can train on every gene.
+    # Without one there is nothing to early-stop or select on, so `fit` keeps
+    # the final epoch; see its documentation for what that implies.
+    validation_split: str | None = "validation"
     test_split: str | None = "test"
 
 
@@ -46,6 +49,14 @@ class TrainingConfig:
     reverse_complement_probability: float = 0.5
     num_workers: int = 4
     gradient_clip_norm: float = 5.0
+    adam_beta1: float = 0.9
+    adam_beta2: float = 0.999
+    adam_eps: float = 1e-8
+    huber_beta: float = 1.0
+    lr_schedule: str = "none"
+    warmup_fraction: float = 0.0
+    min_lr_ratio: float = 0.05
+    scheduler_epochs: int | None = None
     device: str = "cuda"
     mixed_precision: str = "auto"
     show_progress: bool = True
@@ -74,7 +85,9 @@ class CisTempoForgeConfig:
             raise ValueError("data.day_indices must be unique")
         if any(not isinstance(day, int) or day < 0 for day in self.data.day_indices):
             raise ValueError("data.day_indices must contain non-negative integers")
-        split_names = [self.data.train_split, self.data.validation_split]
+        split_names = [self.data.train_split]
+        if self.data.validation_split is not None:
+            split_names.append(self.data.validation_split)
         if self.data.test_split is not None:
             split_names.append(self.data.test_split)
         if any(not isinstance(name, str) or not name for name in split_names):
@@ -101,6 +114,23 @@ class CisTempoForgeConfig:
             raise ValueError("learning_rate must be positive and weight_decay non-negative")
         if not 0 <= t.reverse_complement_probability <= 1:
             raise ValueError("reverse_complement_probability must be in [0, 1]")
+        if not 0 <= t.adam_beta1 < 1 or not 0 <= t.adam_beta2 < 1:
+            raise ValueError("adam_beta1 and adam_beta2 must be in [0, 1)")
+        if t.adam_eps <= 0:
+            raise ValueError("adam_eps must be positive")
+        if t.huber_beta <= 0:
+            raise ValueError("huber_beta must be positive")
+        if t.lr_schedule not in {"none", "cosine", "linear"}:
+            raise ValueError("lr_schedule must be none, cosine, or linear")
+        if not 0 <= t.warmup_fraction < 1:
+            raise ValueError("warmup_fraction must be in [0, 1)")
+        if not 0 <= t.min_lr_ratio < 1:
+            raise ValueError("min_lr_ratio must be in [0, 1)")
+        if t.scheduler_epochs is not None:
+            if not isinstance(t.scheduler_epochs, int) or isinstance(t.scheduler_epochs, bool):
+                raise TypeError("scheduler_epochs must be an integer")
+            if t.scheduler_epochs <= 0:
+                raise ValueError("scheduler_epochs must be positive")
         if t.mixed_precision not in {"auto", "bf16", "fp16", "none"}:
             raise ValueError("mixed_precision must be auto, bf16, fp16, or none")
         if not isinstance(t.show_progress, bool):

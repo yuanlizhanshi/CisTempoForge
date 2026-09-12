@@ -8,14 +8,18 @@ from .config import TrainingConfig
 
 def simple_huber_loss(output: dict[str, torch.Tensor], batch: dict[str, torch.Tensor],
                       config: TrainingConfig) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+    # Predictions and targets are z-scored, so beta is expressed in units of the
+    # target standard deviation: values below 1 keep the loss quadratic over a
+    # wider band, above 1 make it robust to a wider tail.
+    beta = float(config.huber_beta)
     raw = {
-        "trend": F.smooth_l1_loss(output["trend"], batch["trend_target"]),
+        "trend": F.smooth_l1_loss(output["trend"], batch["trend_target"], beta=beta),
         "level": F.mse_loss(output["level"], batch["level_target"]),
-        "local_trend": F.smooth_l1_loss(output["local_trend"], batch["trend_target"]),
+        "local_trend": F.smooth_l1_loss(output["local_trend"], batch["trend_target"], beta=beta),
     }
     if output.get("level_encoder_trend") is not None:
         raw["level_encoder_trend"] = F.smooth_l1_loss(
-            output["level_encoder_trend"], batch["trend_target"]
+            output["level_encoder_trend"], batch["trend_target"], beta=beta
         )
     weights = {
         "trend": config.trend_weight,

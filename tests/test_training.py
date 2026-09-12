@@ -15,7 +15,14 @@ from cistempoforge import (
 from cistempoforge.trainer import _restore_rng, _rng_state
 
 
-def training_config(data, epochs=2):
+def training_config(data, epochs=2, **training_overrides):
+    training = {
+        "epochs": epochs, "patience": 2, "batch_size": 2,
+        "gradient_accumulation": 2, "num_workers": 0,
+        "reverse_complement_probability": 0, "device": "cpu",
+        "mixed_precision": "none",
+    }
+    training.update(training_overrides)
     return config_from_dict({
         "data": {
             "model_inputs": data["model_inputs"], "metadata": data["metadata"],
@@ -26,12 +33,7 @@ def training_config(data, epochs=2):
             "n_days": 6, "variant": "independent_structure", "fusion": "concat",
             "hidden_dim": 8, "motif_filters": 2, "motif_width": 19, "dropout": 0,
         },
-        "training": {
-            "epochs": epochs, "patience": 2, "batch_size": 2,
-            "gradient_accumulation": 2, "num_workers": 0,
-            "reverse_complement_probability": 0, "device": "cpu",
-            "mixed_precision": "none",
-        },
+        "training": training,
     })
 
 
@@ -102,6 +104,59 @@ def test_resume_accepts_legacy_checkpoint_without_progress_setting(synthetic_dat
     config.training.show_progress = True
     resumed = fit(config, output, resume_from=legacy)
     assert len(resumed.history) == 1
+
+
+def test_learning_rate_schedule_is_applied_and_recorded(synthetic_data, tmp_path):
+    config = training_config(
+        synthetic_data, epochs=6, patience=6,
+        lr_schedule="cosine", min_lr_ratio=0.1,
+    )
+    result = fit(config, tmp_path / "scheduled")
+    rates = result.history["learning_rate"]
+    assert rates.iloc[0] == pytest.approx(config.training.learning_rate)
+    assert rates.iloc[-1] == pytest.approx(config.training.learning_rate * 0.1)
+    assert rates.is_monotonic_decreasing, "no warmup configured, so decay is monotone"
+
+
+def test_constant_rate_is_unchanged_when_no_schedule_is_requested(synthetic_data, tmp_path):
+    """The default path must still train at a flat rate."""
+    config = training_config(synthetic_data, epochs=3, patience=3)
+    result = fit(config, tmp_path / "flat")
+    rates = result.history["learning_rate"].unique()
+    assert rates.tolist() == [config.training.learning_rate]
+
+
+def test_scheduler_state_is_checkpointed(synthetic_data, tmp_path):
+    config = training_config(
+        synthetic_data, epochs=3, patience=3, lr_schedule="cosine", warmup_fraction=0.34,
+    )
+    result = fit(config, tmp_path / "stateful")
+    state = load_checkpoint(result.last_checkpoint, map_location="cpu")
+    assert "scheduler_state" in state
+    assert state["scheduler_state"]["last_epoch"] == 3
+
+
+def test_generator_state_round_trips():
+    """Resume must restore the dedicated generators, not just the global RNG.
+
+    Without this the resumed run would replay permutations and augmentation
+    draws the interrupted run had already consumed.
+    """
+    loader_generator = torch.Generator().manual_seed(3)
+    torch.rand(5, generator=loader_generator)  # advance past the checkpoint
+    state = _rng_state({"loader": loader_generator})
+    expected = torch.rand(3, generator=loader_generator)
+
+    restored = torch.Generator().manual_seed(99)
+    _restore_rng(state, {"loader": restored})
+    assert torch.equal(expected, torch.rand(3, generator=restored))
+
+
+def test_restore_rng_tolerates_checkpoints_without_generator_state():
+    """Checkpoints written before 0.3.0 carry no generator snapshot."""
+    state = _rng_state()
+    state.pop("generators")
+    _restore_rng(state, {"loader": torch.Generator().manual_seed(1)})
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is unavailable")

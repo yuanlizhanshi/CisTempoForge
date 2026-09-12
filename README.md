@@ -37,6 +37,40 @@ split is never used for training, early stopping, or checkpoint selection. After
 model selection, create the test dataset explicitly and call `predict` to run
 test inference.
 
+### Learning-rate schedule
+
+`learning_rate` is constant unless a schedule is requested. Set
+`lr_schedule` to `"cosine"` or `"linear"` to decay from the peak, optionally
+after a warmup:
+
+```python
+config.training.lr_schedule = "cosine"
+config.training.warmup_fraction = 0.05   # fraction of the horizon
+config.training.min_lr_ratio = 0.05      # floor, as a fraction of learning_rate
+config.training.scheduler_epochs = 40    # horizon; defaults to training.epochs
+```
+
+The schedule advances once per epoch and is laid out over `scheduler_epochs`
+rather than over the epochs actually run, so early stopping cannot leave the
+rate unannealed. Pin `scheduler_epochs` explicitly when comparing runs of
+different lengths — a short run then sees the same prefix of the curve as a
+long one. The first epoch of the horizon reaches the floor exactly.
+
+Other training knobs: `adam_beta1`, `adam_beta2`, `adam_eps`, and `huber_beta`
+(the transition point of the SmoothL1 terms on trend heads; the level head
+stays MSE). Note that changing `huber_beta` rescales `validation_loss_*`, so
+compare runs on prediction metrics such as `centered_rmse`, never on loss.
+
+### Reproducibility
+
+Everything that affects a run's trajectory is derived from
+`training.seed` alone. The shuffle order and the reverse-complement
+augmentation use dedicated generators seeded from it, and the global streams
+are re-seeded after model construction. Two configurations that differ only in
+hyperparameters therefore see an identical sequence of batches and
+augmentations, which is what makes A/B comparison meaningful. Changing the seed
+changes the shuffle, the augmentation, the initialization, and dropout.
+
 By default, training refuses to overwrite an output directory containing
 `best.pt`, `last.pt`, `history.csv`, or `manifest.json`. Resume an interrupted
 run with:

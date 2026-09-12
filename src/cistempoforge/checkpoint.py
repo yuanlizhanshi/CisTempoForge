@@ -22,6 +22,7 @@ def checkpoint_payload(*, model: CisTempoForgeModel, config: CisTempoForgeConfig
                        metrics: Mapping[str, Any], package_version: str,
                        optimizer: torch.optim.Optimizer | None = None,
                        scaler: torch.amp.GradScaler | None = None,
+                       scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
                        history: list[dict] | None = None,
                        training_state: Mapping[str, Any] | None = None) -> dict[str, Any]:
     payload: dict[str, Any] = {
@@ -39,6 +40,8 @@ def checkpoint_payload(*, model: CisTempoForgeModel, config: CisTempoForgeConfig
         payload["optimizer_state"] = optimizer.state_dict()
     if scaler is not None:
         payload["scaler_state"] = scaler.state_dict()
+    if scheduler is not None:
+        payload["scheduler_state"] = scheduler.state_dict()
     if history is not None:
         payload["history"] = history
     if training_state is not None:

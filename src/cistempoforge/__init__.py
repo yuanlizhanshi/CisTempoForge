@@ -19,7 +19,7 @@ from .data import (
     load_data,
     make_loader,
 )
-from .engine import evaluate, predict, set_seed, train_epoch
+from .engine import build_lr_scheduler, evaluate, predict, set_seed, train_epoch
 from .losses import simple_huber_loss
 from .metrics import select_best_epoch, trajectory_metrics
 from .model import CisTempoForgeModel
@@ -31,7 +31,7 @@ __all__ = [
     "CisTempoForgeConfig", "CisTempoForgeDataset", "CisTempoForgeModel",
     "DataConfig", "ModelConfig", "Normalization", "PreparedData",
     "SelectionConfig", "STRUCTURE_COLUMNS", "TrainingConfig", "TrainingResult", "__version__",
-    "build_structure_table",
+    "build_lr_scheduler", "build_structure_table",
     "compute_train_normalization", "config_from_dict", "denormalize", "evaluate",
     "fit", "fit_transform_structure", "load_checkpoint", "load_config", "load_data", "load_model",
     "make_loader", "predict", "save_checkpoint", "select_best_epoch", "set_seed",

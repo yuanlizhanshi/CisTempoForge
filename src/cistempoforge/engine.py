@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import random
 from contextlib import nullcontext
 from typing import Iterable
@@ -41,13 +42,56 @@ def _autocast(device: torch.device, dtype: torch.dtype | None):
     return torch.autocast(device_type=device.type, dtype=dtype)
 
 
-def reverse_complement(batch: dict[str, torch.Tensor], probability: float) -> dict[str, torch.Tensor]:
+def build_lr_scheduler(
+    optimizer: torch.optim.Optimizer, config: TrainingConfig,
+) -> torch.optim.lr_scheduler.LambdaLR | None:
+    """Warmup plus optional decay, stepped once per epoch.
+
+    Returns ``None`` for the default configuration so that existing setups keep
+    training at a constant learning rate.
+
+    The schedule is laid out over ``scheduler_epochs`` (falling back to
+    ``epochs``) rather than over the epochs actually run: early stopping means
+    the true length is unknown when training starts, and sizing the decay to
+    the observed length would leave the learning rate unannealed whenever a run
+    stops late.  Callers doing budget-based comparisons must therefore pin
+    ``scheduler_epochs`` so that a short run sees the same prefix of the curve
+    as a long one.
+    """
+    if config.lr_schedule == "none" and config.warmup_fraction <= 0:
+        return None
+    horizon = config.scheduler_epochs or config.epochs
+    warmup = (
+        max(1, round(config.warmup_fraction * horizon))
+        if config.warmup_fraction > 0 else 0
+    )
+    # Epochs are 0-based, so the decay spans warmup..horizon-1 and the final
+    # epoch lands exactly on the floor rather than one step short of it.
+    span = max(1, horizon - 1 - warmup)
+    floor = config.min_lr_ratio
+    mode = config.lr_schedule
+
+    def factor(epoch: int) -> float:
+        # ``epoch`` is LambdaLR's 0-based ``last_epoch``.
+        if warmup and epoch < warmup:
+            return (epoch + 1) / warmup
+        if mode == "none":
+            return 1.0
+        progress = min(1.0, max(0.0, (epoch - warmup) / span))
+        curve = 0.5 * (1 + math.cos(math.pi * progress)) if mode == "cosine" else 1.0 - progress
+        return floor + (1.0 - floor) * curve
+
+    return torch.optim.lr_scheduler.LambdaLR(optimizer, factor)
+
+
+def reverse_complement(batch: dict[str, torch.Tensor], probability: float, *,
+                       generator: torch.Generator | None = None) -> dict[str, torch.Tensor]:
     if probability <= 0:
         return batch
     result = dict(batch)
     dna, atac = result["dna"], result["atac"]
     choose = (
-        torch.rand(dna.shape[:2], device=dna.device) < probability
+        torch.rand(dna.shape[:2], device=dna.device, generator=generator) < probability
     ) & result["peak_mask"].bool()
     rc = dna[:, :, [3, 2, 1, 0]].flip(-1)
     result["dna"] = torch.where(choose[:, :, None, None], rc, dna)
@@ -63,7 +107,8 @@ def train_epoch(model: torch.nn.Module, loader: Iterable, optimizer: torch.optim
                 device: str | torch.device, config: TrainingConfig,
                 *, scaler: torch.amp.GradScaler | None = None,
                 amp_dtype: torch.dtype | None = None, progress: bool = False,
-                description: str = "Training") -> dict[str, float]:
+                description: str = "Training",
+                augmentation_generator: torch.Generator | None = None) -> dict[str, float]:
     device = torch.device(device)
     model.train()
     optimizer.zero_grad(set_to_none=True)
@@ -77,7 +122,8 @@ def train_epoch(model: torch.nn.Module, loader: Iterable, optimizer: torch.optim
     )
     for step, cpu_batch in enumerate(bar, 1):
         batch = reverse_complement(
-            _to_device(cpu_batch, device), config.reverse_complement_probability
+            _to_device(cpu_batch, device), config.reverse_complement_probability,
+            generator=augmentation_generator,
         )
         with _autocast(device, amp_dtype):
             output = model(batch)

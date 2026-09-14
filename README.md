@@ -28,8 +28,8 @@ result = fit(config, output_dir="runs/d0_d5_seed42")
 model, checkpoint = load_model(result.best_checkpoint, device="cuda")
 ```
 
-`fit` displays scPrinter-style, Notebook-aware progress bars for the training
-and validation batches in every epoch, followed by a persistent epoch summary.
+`fit` displays Notebook-aware progress bars for the training and validation
+batches in every epoch, followed by a persistent epoch summary.
 Set `config.training.show_progress = False` for quiet batch execution.
 
 `fit` constructs only the configured training and validation datasets. The test
